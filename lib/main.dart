@@ -1,122 +1,178 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import './api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
-void main() => runApp(MyApp());
+class MyState extends ChangeNotifier {
+  String apiKey;
+  List<Task> tasks;
 
-class MyApp extends StatelessWidget {
-  const MyApp();
+  MyState(this.apiKey, this.tasks);
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: ThemeData(
-        primaryColor: Colors.lightBlue,
-      ),
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text('To-Do List',
-          style: TextStyle(fontSize: 24)
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final apiKey = await register();
+  final prefs = await SharedPreferences.getInstance();
+
+  List<Task> savedTasks = [];
+
+  final tasksJson = prefs.getString('tasks');
+  if (tasksJson != null) {
+    final List<dynamic> taskData = json.decode(tasksJson) as List<dynamic>;
+    savedTasks = taskData.map((json) => Task.fromJson(json)).toList();
+  }
+
+  if (apiKey != null) {
+    runApp(
+      ChangeNotifierProvider(
+        create: (context) => MyState(apiKey, savedTasks),
+        child: MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(
+              title: const Text('To-Do List', style: TextStyle(fontSize: 24)),
+            ),
+            body: TodoListScreen(),
           ),
         ),
-        body: TodoListScreen(),
       ),
     );
+  } else {
+  
   }
 }
 
 class TodoListScreen extends StatefulWidget {
-  const TodoListScreen();
-
   @override
   _TodoListScreenState createState() => _TodoListScreenState();
 }
 
-enum TodoFilter { all, checked, unchecked } // filteralternativ
+enum TodoFilter { all, checked, unchecked }
 
 class _TodoListScreenState extends State<TodoListScreen> {
-  TodoFilter currentFilter = TodoFilter.all; // default filtret visar alla todos
-  List<Task> Todos = []; // sparar mina todos tillfälligt i lista
+  TodoFilter currentFilter = TodoFilter.all;
+  List<Task> todos = [];
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    final myState = Provider.of<MyState>(context, listen: false);
+    setState(() {
+      this.todos = myState.tasks;
+    });
+    super.didChangeDependencies();
+  }
+
+  Future<void> _updateTasks() async {
+    final myState = Provider.of<MyState>(context, listen: false);
+
+    
+    final updatedTasks = [...myState.tasks, ...todos];
+    myState.tasks = updatedTasks;
+
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final tasksJson = json.encode(updatedTasks.map((task) => task.toJson()).toList());
+      await prefs.setString('tasks', tasksJson);
+    } catch (e) {
+      print('Error saving tasks: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
-        children: <Widget>[    //Dropdownfilter för att sortera todos
-        DropdownButton<TodoFilter>(
-          value: currentFilter,
-          onChanged: (TodoFilter? newValue) {
-            setState(() {
-              currentFilter = newValue ?? TodoFilter.all;
-            });
-          },
-          items: TodoFilter.values.map((TodoFilter filter) {
-            return DropdownMenuItem<TodoFilter>(
-              value: filter,
-              child: Text(
-                filter == TodoFilter.all
-                ? 'All'
-                : filter == TodoFilter.checked
-                    ? 'Done'
-                    : 'Not done',
-              ),
-            );
-          }).toList(),
-        ),
-        Expanded(
-          child: ListView.separated(
-            itemCount: Todos.length,
-            separatorBuilder: (context, index) => Divider(),
-            itemBuilder: (context, index) {
-              final task = Todos[index];
-              if (currentFilter == TodoFilter.checked &&
-                  !Todos[index].isChecked) {
-                return SizedBox.shrink();
-              } else if (currentFilter == TodoFilter.unchecked &&
-                  Todos[index].isChecked) {
-                return SizedBox.shrink();
-              }
-              return ChecklistItem(
-                title: Todos[index].title,
-                isChecked: Todos[index].isChecked,
-                onRemove: () {
-                  setState(() {
-                    Todos.removeAt(index);
-                  });
-                },
-                onCheckedChanged: (newValue) {
-                  setState(() {
-                    Todos[index].isChecked = newValue ?? false;
-                  });
-                },
-              );
+        children: <Widget>[
+          DropdownButton<TodoFilter>(
+            value: currentFilter,
+            onChanged: (TodoFilter? newValue) {
+              setState(() {
+                currentFilter = newValue ?? TodoFilter.all;
+              });
             },
+            items: TodoFilter.values.map((TodoFilter filter) {
+              return DropdownMenuItem<TodoFilter>(
+                value: filter,
+                child: Text(
+                  filter == TodoFilter.all
+                      ? 'All'
+                      : filter == TodoFilter.checked
+                          ? 'Done'
+                          : 'Not done',
+                ),
+              );
+            }).toList(),
           ),
-        ),
-
-        Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: ElevatedButton(
-            onPressed: () async {
-              final newTask = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => AddTaskScreen()),
-              );
-              if (newTask != null) {
-                setState(() {
-                  Todos.add(Task(title: newTask, isChecked: false));
-                });
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor:Colors.lightBlue,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: todos.length,
+              separatorBuilder: (context, index) => const Divider(),
+              itemBuilder: (context, index) {
+                final task = todos[index];
+                if (currentFilter == TodoFilter.checked && !task.done) {
+                  return const SizedBox.shrink();
+                } else if (currentFilter == TodoFilter.unchecked && task.done) {
+                  return const SizedBox.shrink();
+                }
+                return ChecklistItem(
+                  title: task.title,
+                  isChecked: task.done,
+                  onRemove: () async {
+                    await deleteTodo(
+                        Provider.of<MyState>(context, listen: false).apiKey, task.id);
+                    setState(() {
+                      todos.removeAt(index);
+                    });
+                    await _updateTasks();
+                  },
+                  onCheckedChanged: (newValue) async {
+                    await updateTodo(
+                        Provider.of<MyState>(context, listen: false).apiKey, task.id, newValue ?? false);
+                    setState(() {
+                      task.done = newValue ?? false;
+                    });
+                    await _updateTasks();
+                  },
+                );
+              },
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 50.0, vertical: 25.0),
-              child: Text(
-                'Add new task',
-                style: TextStyle(fontSize: 25),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: ElevatedButton(
+              onPressed: () async {
+                final newTask = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => AddTaskScreen()),
+                );
+                if (newTask != null) {
+                  final result = await addTodo(
+                      Provider.of<MyState>(context, listen: false).apiKey,
+                      Task(id: '', title: newTask, done: false));
+
+                  
+                  setState(() {
+                    todos = result.tasks;
+                  });
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.lightBlue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10.0),
+                ),
+              ),
+              child: const Padding(
+                padding:  EdgeInsets.symmetric(horizontal: 50.0, vertical: 25.0),
+                child: Text(
+                  'Add new task',
+                  style: TextStyle(fontSize: 25),
                 ),
               ),
             ),
@@ -126,6 +182,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
     );
   }
 }
+
 
 class FilterButton extends StatelessWidget {
   final String label;
@@ -156,7 +213,7 @@ class ChecklistItem extends StatelessWidget {
   final ValueChanged<bool?> onCheckedChanged;
   final VoidCallback onRemove;
 
-  ChecklistItem({ 
+  ChecklistItem({
     required this.title,
     required this.isChecked,
     required this.onCheckedChanged,
@@ -178,7 +235,7 @@ class ChecklistItem extends StatelessWidget {
         onChanged: onCheckedChanged,
       ),
       trailing: IconButton(
-        icon: Icon(Icons.close),
+        icon: const Icon(Icons.close),
         onPressed: onRemove,
       ),
     );
@@ -188,14 +245,13 @@ class ChecklistItem extends StatelessWidget {
 class AddTaskScreen extends StatelessWidget {
   final TextEditingController _taskController = TextEditingController();
 
-  AddTaskScreen();
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Add new task',
-        style: TextStyle(fontSize: 24)
+        title: const Text(
+          'Add new task',
+          style: TextStyle(fontSize: 24),
         ),
       ),
       body: Padding(
@@ -205,13 +261,12 @@ class AddTaskScreen extends StatelessWidget {
           children: <Widget>[
             TextField(
               controller: _taskController,
-              style: TextStyle(fontSize: 20),
-              decoration: InputDecoration(
+              style: const TextStyle(fontSize: 20),
+              decoration: const InputDecoration(
                 labelText: 'Write new task:',
-                
               ),
             ),
-            SizedBox(height: 16.0),
+            const SizedBox(height: 16.0),
             ElevatedButton(
               onPressed: () {
                 final newTask = _taskController.text.trim();
@@ -219,8 +274,9 @@ class AddTaskScreen extends StatelessWidget {
                   Navigator.pop(context, newTask);
                 }
               },
-              child: Text('Add to tasks',
-              style: TextStyle(fontSize: 20),
+              child: const Text(
+                'Add to tasks',
+                style: TextStyle(fontSize: 20),
               ),
             ),
           ],
@@ -230,12 +286,11 @@ class AddTaskScreen extends StatelessWidget {
   }
 }
 
-class Task {
-  final String title;
-  bool isChecked;
 
-  Task({
-    required this.title,
-    required this.isChecked,
-  });
-}
+
+
+
+
+
+
+
