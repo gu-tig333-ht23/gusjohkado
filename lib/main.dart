@@ -1,290 +1,158 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import './api.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'api_manager.dart';
+import 'todo_input_page.dart';
 
-class MyState extends ChangeNotifier {
-  String apiKey;
-  List<Task> tasks;
+void main() => runApp(TodoApp());
 
-  MyState(this.apiKey, this.tasks);
-}
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final apiKey = await register();
-  final prefs = await SharedPreferences.getInstance();
-
-  List<Task> savedTasks = [];
-
-  final tasksJson = prefs.getString('tasks');
-  if (tasksJson != null) {
-    final List<dynamic> taskData = json.decode(tasksJson) as List<dynamic>;
-    savedTasks = taskData.map((json) => Task.fromJson(json)).toList();
-  }
-
-  if (apiKey != null) {
-    runApp(
-      ChangeNotifierProvider(
-        create: (context) => MyState(apiKey, savedTasks),
-        child: MaterialApp(
-          home: Scaffold(
-            appBar: AppBar(
-              title: const Text('To-Do List', style: TextStyle(fontSize: 24)),
-            ),
-            body: TodoListScreen(),
-          ),
-        ),
-      ),
-    );
-  } else {
-  
-  }
-}
-
-class TodoListScreen extends StatefulWidget {
+class TodoApp extends StatelessWidget {
   @override
-  _TodoListScreenState createState() => _TodoListScreenState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Todo App',
+      theme: ThemeData(
+        primarySwatch: Colors.yellow,
+      ),
+      home: TodoListPage(),
+    );
+  }
 }
 
-enum TodoFilter { all, checked, unchecked }
+class TodoListPage extends StatefulWidget {
+  @override
+  _TodoListPageState createState() => _TodoListPageState();
+}
 
-class _TodoListScreenState extends State<TodoListScreen> {
+enum TodoFilter { all, done, notDone }
+
+class _TodoListPageState extends State<TodoListPage> {
   TodoFilter currentFilter = TodoFilter.all;
-  List<Task> todos = [];
-
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
-  void didChangeDependencies() {
-    final myState = Provider.of<MyState>(context, listen: false);
-    setState(() {
-      this.todos = myState.tasks;
-    });
-    super.didChangeDependencies();
-  }
-
-  Future<void> _updateTasks() async {
-    final myState = Provider.of<MyState>(context, listen: false);
-
-    
-    final updatedTasks = [...myState.tasks, ...todos];
-    myState.tasks = updatedTasks;
-
-    final prefs = await SharedPreferences.getInstance();
-    try {
-      final tasksJson = json.encode(updatedTasks.map((task) => task.toJson()).toList());
-      await prefs.setString('tasks', tasksJson);
-    } catch (e) {
-      print('Error saving tasks: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: <Widget>[
-          DropdownButton<TodoFilter>(
-            value: currentFilter,
-            onChanged: (TodoFilter? newValue) {
-              setState(() {
-                currentFilter = newValue ?? TodoFilter.all;
-              });
-            },
-            items: TodoFilter.values.map((TodoFilter filter) {
-              return DropdownMenuItem<TodoFilter>(
-                value: filter,
-                child: Text(
-                  filter == TodoFilter.all
-                      ? 'All'
-                      : filter == TodoFilter.checked
-                          ? 'Done'
-                          : 'Not done',
-                ),
-              );
-            }).toList(),
-          ),
-          Expanded(
-            child: ListView.separated(
-              itemCount: todos.length,
-              separatorBuilder: (context, index) => const Divider(),
-              itemBuilder: (context, index) {
-                final task = todos[index];
-                if (currentFilter == TodoFilter.checked && !task.done) {
-                  return const SizedBox.shrink();
-                } else if (currentFilter == TodoFilter.unchecked && task.done) {
-                  return const SizedBox.shrink();
-                }
-                return ChecklistItem(
-                  title: task.title,
-                  isChecked: task.done,
-                  onRemove: () async {
-                    await deleteTodo(
-                        Provider.of<MyState>(context, listen: false).apiKey, task.id);
-                    setState(() {
-                      todos.removeAt(index);
-                    });
-                    await _updateTasks();
-                  },
-                  onCheckedChanged: (newValue) async {
-                    await updateTodo(
-                        Provider.of<MyState>(context, listen: false).apiKey, task.id, newValue ?? false);
-                    setState(() {
-                      task.done = newValue ?? false;
-                    });
-                    await _updateTasks();
-                  },
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: ElevatedButton(
-              onPressed: () async {
-                final newTask = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => AddTaskScreen()),
-                );
-                if (newTask != null) {
-                  final result = await addTodo(
-                      Provider.of<MyState>(context, listen: false).apiKey,
-                      Task(id: '', title: newTask, done: false));
-
-                  
-                  setState(() {
-                    todos = result.tasks;
-                  });
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.lightBlue,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10.0),
-                ),
-              ),
-              child: const Padding(
-                padding:  EdgeInsets.symmetric(horizontal: 50.0, vertical: 25.0),
-                child: Text(
-                  'Add new task',
-                  style: TextStyle(fontSize: 25),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-class FilterButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onPressed;
-  final bool selected;
-
-  FilterButton({
-    required this.label,
-    required this.onPressed,
-    required this.selected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: selected ? Colors.lightBlue : Colors.grey,
-      ),
-      child: Text(label),
-    );
-  }
-}
-
-class ChecklistItem extends StatelessWidget {
-  final String title;
-  final bool isChecked;
-  final ValueChanged<bool?> onCheckedChanged;
-  final VoidCallback onRemove;
-
-  ChecklistItem({
-    required this.title,
-    required this.isChecked,
-    required this.onCheckedChanged,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(
-        title,
-        style: TextStyle(
-          fontSize: 20,
-          decoration: isChecked ? TextDecoration.lineThrough : TextDecoration.none,
-        ),
-      ),
-      leading: Checkbox(
-        value: isChecked,
-        onChanged: onCheckedChanged,
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: onRemove,
-      ),
-    );
-  }
-}
-
-class AddTaskScreen extends StatelessWidget {
-  final TextEditingController _taskController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Add new task',
-          style: TextStyle(fontSize: 24),
+        title: const Text("Todo",
+        style: TextStyle(fontSize: 28.0),
+        ),
+        actions: [
+          DropdownButtonHideUnderline(
+            child: DropdownButton<TodoFilter>(
+              value: currentFilter,
+              onChanged: (TodoFilter? newValue) {
+                setState(() {
+                  currentFilter = newValue!;
+                });
+              },
+              items: const <DropdownMenuItem<TodoFilter>>[
+                DropdownMenuItem<TodoFilter>(
+                  value: TodoFilter.all,
+                  child: Text('All', style: TextStyle(fontSize: 18.0)),
+                ),
+                DropdownMenuItem<TodoFilter>(
+                  value: TodoFilter.done,
+                  child: Text('Done', style: TextStyle(fontSize: 18.0)),
+                ),
+                DropdownMenuItem<TodoFilter>(
+                  value: TodoFilter.notDone,
+                  child: Text('Not Done', style: TextStyle(fontSize: 18.0)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: FutureBuilder(
+        future: apiManager.getTodos(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done) {
+            if (snapshot.hasError) {
+              return Center(child: Text("Error fetching todos"));
+            }
+            final todos = snapshot.data as List<Map<String, dynamic>>;
+
+            final filteredTodos = todos.where((todo) {
+              switch (currentFilter) {
+                case TodoFilter.done:
+                  return todo['done'] == true;
+                case TodoFilter.notDone:
+                  return todo['done'] == false;
+                case TodoFilter.all:
+                default:
+                  return true;
+              }
+            }).toList();
+
+            return ListView.builder(
+  itemCount: filteredTodos.length,
+  itemBuilder: (context, index) {
+    final todo = filteredTodos[index];
+    return ListTile(
+      leading: Checkbox(
+        value: todo['done'],
+        onChanged: (bool? value) async {
+          setState(() {
+            todo['done'] = value;
+          });
+          try {
+            await apiManager.updateTodo(todo['id'], {
+              "title": todo['title'],
+              "done": todo['done'],
+            });
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Error updating todo: $e")),
+            );
+          }
+        },
+      ),
+      title: Text(
+        todo['title'],
+        style: TextStyle(
+          fontSize: 19.0,
+          decoration: todo['done'] ? TextDecoration.lineThrough : null,
         ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            TextField(
-              controller: _taskController,
-              style: const TextStyle(fontSize: 20),
-              decoration: const InputDecoration(
-                labelText: 'Write new task:',
-              ),
-            ),
-            const SizedBox(height: 16.0),
-            ElevatedButton(
-              onPressed: () {
-                final newTask = _taskController.text.trim();
-                if (newTask.isNotEmpty) {
-                  Navigator.pop(context, newTask);
-                }
-              },
-              child: const Text(
-                'Add to tasks',
-                style: TextStyle(fontSize: 20),
-              ),
-            ),
-          ],
-        ),
+      trailing: IconButton(
+        icon: Icon(Icons.close, color: Colors.red),
+        onPressed: () async {
+          try {
+            await apiManager.deleteTodo(todo['id']);
+            setState(() {
+              filteredTodos.removeAt(index);
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Todo removed")),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Error deleting todo: $e")),
+            );
+          }
+        },
+      ),
+    );
+  },
+);
+
+
+          }
+          return Center(child: CircularProgressIndicator());
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (context) => TodoInputPage(),
+          )).then((_) {
+            setState(() {}); 
+          });
+        },
+        child: Icon(Icons.add),
       ),
     );
   }
 }
+
 
 
 
