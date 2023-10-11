@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'api_manager.dart';
 
 class TodoInputPage extends StatefulWidget {
+  const TodoInputPage({super.key});
+
   @override
   _TodoInputPageState createState() => _TodoInputPageState();
 }
@@ -50,13 +52,13 @@ class _TodoInputPageState extends State<TodoInputPage> {
                 const SizedBox(height: 20.0),
                 ElevatedButton(
                   onPressed: _saveTodo,
-                  child: Text(
-                    "Add",
-                    style: TextStyle(fontSize: 25.0, fontFamily: 'Roboto'),
-                  ),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 60.0, vertical: 20.0),
                     textStyle: const TextStyle(fontSize: 20, fontFamily: 'Roboto'),
+                  ),
+                  child: Text(
+                    "Add",
+                    style: TextStyle(fontSize: 25.0, fontFamily: 'Roboto'),
                   ),
                 ),
               ],

@@ -5,6 +5,8 @@ import 'todo_input_page.dart';
 void main() => runApp(TodoApp());
 
 class TodoApp extends StatelessWidget {
+  const TodoApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -18,6 +20,8 @@ class TodoApp extends StatelessWidget {
 }
 
 class TodoListPage extends StatefulWidget {
+  const TodoListPage({super.key});
+
   @override
   _TodoListPageState createState() => _TodoListPageState();
 }
