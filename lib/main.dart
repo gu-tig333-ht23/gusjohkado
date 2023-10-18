@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'api_manager.dart';
 import 'todo_input_page.dart';
 
-void main() => runApp(TodoApp());
+void main() => runApp(const TodoApp());
 
 class TodoApp extends StatelessWidget {
   const TodoApp({super.key});
@@ -14,7 +14,7 @@ class TodoApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.yellow,
       ),
-      home: TodoListPage(),
+      home: const TodoListPage(),
     );
   }
 }
@@ -30,13 +30,42 @@ enum TodoFilter { all, done, notDone }
 
 class _TodoListPageState extends State<TodoListPage> {
   TodoFilter currentFilter = TodoFilter.all;
+  List<Map<String, dynamic>> _todos = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTodos();
+  }
+
+  Future<void> _fetchTodos() async {
+    try {
+      _todos = await apiManager.getTodos();
+      setState(() {});
+    } catch (e) {
+      // Errors
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filteredTodos = _todos.where((todo) {
+      switch (currentFilter) {
+        case TodoFilter.done:
+          return todo['done'] == true;
+        case TodoFilter.notDone:
+          return todo['done'] == false;
+        case TodoFilter.all:
+        default:
+          return true;
+      }
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Todo",
-        style: TextStyle(fontSize: 28.0),
+        title: const Text(
+          "Todo",
+          style: TextStyle(fontSize: 28.0),
         ),
         actions: [
           DropdownButtonHideUnderline(
@@ -65,97 +94,73 @@ class _TodoListPageState extends State<TodoListPage> {
           ),
         ],
       ),
-      body: FutureBuilder(
-        future: apiManager.getTodos(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            if (snapshot.hasError) {
-              return Center(child: Text("Error fetching todos"));
-            }
-            final todos = snapshot.data as List<Map<String, dynamic>>;
-
-            final filteredTodos = todos.where((todo) {
-              switch (currentFilter) {
-                case TodoFilter.done:
-                  return todo['done'] == true;
-                case TodoFilter.notDone:
-                  return todo['done'] == false;
-                case TodoFilter.all:
-                default:
-                  return true;
-              }
-            }).toList();
-
-            return ListView.builder(
-  itemCount: filteredTodos.length,
-  itemBuilder: (context, index) {
-    final todo = filteredTodos[index];
-    return ListTile(
-      leading: Checkbox(
-        value: todo['done'],
-        onChanged: (bool? value) async {
-          setState(() {
-            todo['done'] = value;
-          });
-          try {
-            await apiManager.updateTodo(todo['id'], {
-              "title": todo['title'],
-              "done": todo['done'],
-            });
-          } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error updating todo: $e")),
-            );
-          }
-        },
-      ),
-      title: Text(
-        todo['title'],
-        style: TextStyle(
-          fontSize: 19.0,
-          decoration: todo['done'] ? TextDecoration.lineThrough : null,
-        ),
-      ),
-      trailing: IconButton(
-        icon: Icon(Icons.close, color: Colors.red),
-        onPressed: () async {
-          try {
-            await apiManager.deleteTodo(todo['id']);
-            setState(() {
-              filteredTodos.removeAt(index);
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Todo removed")),
-            );
-          } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error deleting todo: $e")),
-            );
-          }
-        },
-      ),
-    );
-  },
-);
-
-
-          }
-          return Center(child: CircularProgressIndicator());
+      body: ListView.builder(
+        itemCount: filteredTodos.length,
+        itemBuilder: (context, index) {
+          final todo = filteredTodos[index];
+          return ListTile(
+            leading: Checkbox(
+              value: todo['done'],
+              onChanged: (bool? value) async {
+                try {
+                  await apiManager.updateTodo(todo['id'], {
+                    "title": todo['title'],
+                    "done": value,
+                  });
+                  setState(() {
+                    todo['done'] = value;
+                  });
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error updating todo: $e")),
+                  );
+                }
+              },
+            ),
+            title: Text(
+              todo['title'],
+              style: TextStyle(
+                fontSize: 19.0,
+                decoration: todo['done'] ? TextDecoration.lineThrough : null,
+              ),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.close, color: Colors.red),
+              onPressed: () async {
+                try {
+                  await apiManager.deleteTodo(todo['id']);
+                  setState(() {
+                    _todos.removeAt(index);
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Todo removed")),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error deleting todo: $e")),
+                  );
+                }
+              },
+            ),
+          );
         },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (context) => TodoInputPage(),
-          )).then((_) {
-            setState(() {}); 
+          Navigator.of(context)
+              .push(MaterialPageRoute(
+                builder: (context) => const TodoInputPage(),
+              ))
+              .then((_) {
+            _fetchTodos();
           });
         },
-        child: Icon(Icons.add),
+        child: const Icon(Icons.add),
       ),
     );
   }
 }
+
 
 
 
